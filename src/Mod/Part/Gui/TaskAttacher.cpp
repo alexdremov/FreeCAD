@@ -1465,6 +1465,7 @@ TaskDlgAttacher::TaskDlgAttacher(
     , accepted(false)
 {
     assert(ViewProvider);
+    viewProviderWatcher = ViewProvider;
     setDocumentName(ViewProvider->getDocument()->getDocument()->getName());
 
     if (createBox) {
@@ -1522,6 +1523,11 @@ TaskDlgAttacher::~TaskDlgAttacher()
 void TaskDlgAttacher::handleMouseButtonCB(void* userdata, SoEventCallback* cb)
 {
     auto* self = static_cast<TaskDlgAttacher*>(userdata);
+    if (self->viewProviderWatcher.expired()) {
+        // The view provider was deleted while the dialog was still open (e.g. the
+        // attached object was removed); using it would be use-after-free.
+        return;
+    }
     const SoEvent* ev = cb->getEvent();
     if (!ev->isOfType(SoMouseButtonEvent::getClassTypeId())) {
         return;
