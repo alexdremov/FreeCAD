@@ -258,6 +258,9 @@ private:
     // Double-click accept
     static void handleMouseButtonCB(void* userdata, SoEventCallback* cb);
     QPointer<Gui::View3DInventorViewer> dblClickViewer;
+    // Watches ViewProvider so that the event callback registered in the 3D view can
+    // detect if the view provider was deleted while the dialog is still open
+    Gui::ViewProviderWeakPtrT viewProviderWatcher{nullptr};
     SbTime lastClickTime;
     SbVec2s lastClickPos = SbVec2s(-16000, -16000);
 };
