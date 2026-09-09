@@ -4767,7 +4767,16 @@ void ViewProviderSketch::onCameraChanged(SoCamera* cam)
         QString cmdStr = QStringLiteral("ActiveSketch.ViewObject.TempoVis.sketchClipPlane("
                                         "ActiveSketch, Gui.ActiveDocument, ActiveSketch.ViewObject.SectionView, %1)\n")
                              .arg(tmpFactor < 0 ? QLatin1String("True") : QLatin1String("False"));
-        Base::Interpreter().runStringObject(cmdStr.toLatin1());
+        // This runs from a Coin sensor callback, deep inside Coin/Qt where no handler
+        // exists; an escaping exception would terminate the program.
+        try {
+            Base::Interpreter().runStringObject(cmdStr.toLatin1());
+        }
+        catch (Base::PyException& e) {
+            Base::Console().developerError(
+                "ViewProviderSketch", "sketchClipPlane automation failed with an error: \n");
+            e.reportException();
+        }
     }
 
     // Stretch the axes to cover the whole viewport.
