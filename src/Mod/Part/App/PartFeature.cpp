@@ -958,6 +958,33 @@ static TopoShape _getTopoShape(
         return shape;
     }
 
+    // The sub-object hierarchy is not guaranteed acyclic: e.g. a SubShapeBinder
+    // bound relative to its containing group makes sub-object resolution loop
+    // back onto itself, and this traversal follows sub-object resolution rather
+    // than the (acyclic) dependency graph. Note that compound construction below
+    // legitimately re-enters the same object once per child entry (recursing
+    // with (owner, childSub)), so a same-object re-entry cannot be used to
+    // detect a cycle. Cap the recursion depth instead: legitimate hierarchies
+    // need two frames per nesting level, while a runaway cycle is cut off well
+    // before overflowing the stack (the limit keeps the frames within the ~512
+    // kB stack of secondary threads, at a few kB per level).
+    static constexpr int maxRecursionLevel = 256;
+    static thread_local int recursionLevel = 0;
+    if (recursionLevel >= maxRecursionLevel) {
+        FC_WARN("Sub-object resolution recursion limit "
+                << maxRecursionLevel << " exceeded at " << obj->getFullName()
+                << " (cyclic sub-object reference?), returning null shape");
+        return shape;
+    }
+    ++recursionLevel;
+    struct RecursionGuard
+    {
+        ~RecursionGuard()
+        {
+            --recursionLevel;
+        }
+    } recursionGuard;
+
     PyObject* pyobj = nullptr;
     Base::Matrix4D mat;
     if (powner) {
