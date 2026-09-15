@@ -122,6 +122,18 @@ public:
      */
     bool operator!=(const GeoElementId& obj) const;
 
+    /** @brief ordering operator
+     *
+     * required by ordered containers: recent libc++ (as shipped with the macOS 26/27 SDKs)
+     * synthesizes std::map comparisons via std::less<void> and therefore needs a real
+     * operator< even when std::less is specialized for the type
+     */
+    bool operator<(const GeoElementId& obj) const
+    {
+        return (GeoId != obj.GeoId) ? (GeoId < obj.GeoId)
+                                    : (static_cast<int>(Pos) < static_cast<int>(obj.Pos));
+    }
+
     /** @brief Underlying GeoId (see GeoEnum for definition)
      */
     int GeoId;
@@ -187,8 +199,7 @@ struct less<Sketcher::GeoElementId>
 {
     bool operator()(const Sketcher::GeoElementId& lhs, const Sketcher::GeoElementId& rhs) const
     {
-        return (lhs.GeoId != rhs.GeoId) ? (lhs.GeoId < rhs.GeoId)
-                                        : (static_cast<int>(lhs.Pos) < static_cast<int>(rhs.Pos));
+        return lhs < rhs;
     }
 };
 }  // namespace std
