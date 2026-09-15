@@ -34,6 +34,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QTextBrowser>
+#include <QTimer>
 
 #include <App/Application.h>
 #include <App/Document.h>
@@ -421,31 +422,48 @@ void PropertyEditor::onItemActivated(const QModelIndex& index)
 
 void PropertyEditor::recomputeDocument(App::Document* doc)
 {
-    try {
-        if (doc && !doc->isTransactionEmpty()) {
-            // Between opening and committing a transaction a recompute
-            // could already have been done
-            if (doc->isTouched()) {
-                doc->recompute();
-            }
+    if (!doc || doc->isTransactionEmpty()) {
+        return;
+    }
+    // Between opening and committing a transaction a recompute
+    // could already have been done
+    if (!doc->isTouched()) {
+        return;
+    }
+
+    // closeTransaction() runs while Qt is still dispatching the editor's
+    // FocusOut event inside PropertyItemDelegate::eventFilter. Recomputing
+    // right here pumps nested event loops (progress sequencer, panel updates)
+    // that can destroy the widget tree Qt is iterating through and crash the
+    // event dispatch. Defer the recompute to the next event loop iteration;
+    // the document is looked up by name in case it is closed in between.
+    std::string name = doc->getName();
+    FC_LOG("deferred recompute of document " << name);
+    QTimer::singleShot(0, [name]() {
+        auto doc = App::GetApplication().getDocument(name.c_str());
+        if (!doc || !doc->isTouched()) {
+            return;
         }
-    }
-    // do not re-throw
-    catch (const Base::Exception& e) {
-        e.reportException();
-    }
-    catch (const std::exception& e) {
-        Base::Console().error(
-            "Unhandled std::exception caught in PropertyEditor::recomputeDocument.\n"
-            "The error message is: {}\n",
-            e.what()
-        );
-    }
-    catch (...) {
-        Base::Console().error(
-            "Unhandled unknown exception caught in PropertyEditor::recomputeDocument.\n"
-        );
-    }
+        try {
+            doc->recompute();
+        }
+        // do not re-throw
+        catch (const Base::Exception& e) {
+            e.reportException();
+        }
+        catch (const std::exception& e) {
+            Base::Console().error(
+                "Unhandled std::exception caught in PropertyEditor::recomputeDocument.\n"
+                "The error message is: {}\n",
+                e.what()
+            );
+        }
+        catch (...) {
+            Base::Console().error(
+                "Unhandled unknown exception caught in PropertyEditor::recomputeDocument.\n"
+            );
+        }
+    });
 }
 
 void PropertyEditor::closeTransaction()
