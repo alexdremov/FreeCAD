@@ -454,7 +454,10 @@ void PropertyEditor::recomputeDocument(App::Document* doc)
     FC_LOG("deferred recompute of document " << name);
     QTimer::singleShot(0, [name]() {
         auto doc = App::GetApplication().getDocument(name.c_str());
-        if (!doc || !doc->isTouched()) {
+        // isTouched() can be true while a recompute is already running (this
+        // call may fire from its progress sequencer pumping events); a
+        // recursive recompute would be rejected with an error anyway.
+        if (!doc || !doc->isTouched() || doc->testStatus(App::Document::Recomputing)) {
             return;
         }
         try {
