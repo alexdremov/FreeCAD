@@ -1101,6 +1101,16 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
         });
     }
 
+    // _resetEdit() above leaves the deleted view provider cached in
+    // _editViewProviderPrevious for the restore-previous-edit feature. It must
+    // not survive this deletion, or Document::resetEdit() would call setEdit()
+    // on freed memory.
+    if (d->_editViewProviderPrevious == viewProvider) {
+        FC_LOG("Document: deleted view provider cached for edit restore");
+        d->_editViewProviderPrevious = nullptr;
+        d->_editWantsRestorePrevious = false;
+    }
+
     handleChildren3D(viewProvider, true);
 
     if (viewProvider && viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
