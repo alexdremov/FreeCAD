@@ -24,6 +24,7 @@
 
 
 #include <sstream>
+#include <algorithm>
 #include <Bnd_Box.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepAdaptor_Curve.hxx>
@@ -957,6 +958,32 @@ static TopoShape _getTopoShape(
     if (!obj) {
         return shape;
     }
+
+    // The sub-object hierarchy is not guaranteed acyclic: e.g. a SubShapeBinder
+    // bound relative to its containing group makes sub-object resolution loop
+    // back onto itself, and this traversal follows sub-object resolution rather
+    // than the (acyclic) dependency graph. Guard against re-entering an object
+    // that is already on the current path, otherwise a cycle recurses here
+    // until the stack overflows. Returning a null shape is safe: the callers
+    // treat it as 'nothing to do' and simply skip the offending branch.
+    static thread_local std::vector<const App::DocumentObject*> parents;
+    if (std::find(parents.begin(), parents.end(), obj) != parents.end()) {
+        FC_WARN("Cyclic sub-object reference to " << obj->getFullName()
+                                                  << ", returning null shape to break the loop");
+        return shape;
+    }
+    parents.push_back(obj);
+    struct PathGuard
+    {
+        std::vector<const App::DocumentObject*>& vec;
+        explicit PathGuard(std::vector<const App::DocumentObject*>& v) : vec(v)
+        {
+        }
+        ~PathGuard()
+        {
+            vec.pop_back();
+        }
+    } pathGuard{parents};
 
     PyObject* pyobj = nullptr;
     Base::Matrix4D mat;
