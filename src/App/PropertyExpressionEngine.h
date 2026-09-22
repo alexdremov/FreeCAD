@@ -307,6 +307,12 @@ public:
     /// Get the number of expressions managed by this object.
     size_t numExpressions() const;
 
+    /// Get the number of bindings that failed to restore and are kept in quarantine.
+    size_t getQuarantinedExpressionCount() const
+    {
+        return quarantinedExpressions.size();
+    }
+
     /// signal called when an expression was changed
     fastsignals::signal<void(const App::ObjectIdentifier&)> expressionChanged;
 
@@ -370,6 +376,18 @@ private:
     /**< Expressions are read from file to this map first before they are validated and inserted
      * into the actual map */
     std::unique_ptr<std::vector<RestoredExpression>> restoredExpressions;
+
+    /**
+     * @brief Bindings that could not be re-resolved during document restore.
+     *
+     * They are kept verbatim (keyed by their raw path string as read from the
+     * file) instead of being silently dropped, are written back unchanged on
+     * save, and restoration is retried on every document load. This keeps a
+     * binding alive across temporarily broken states (e.g. a deleted property
+     * it references) rather than permanently converting the driven property
+     * into a plain static value.
+     */
+    std::map<std::string, RestoredExpression> quarantinedExpressions;
 
     void tryRestoreExpression(DocumentObject* docObj, const RestoredExpression& info);
 
