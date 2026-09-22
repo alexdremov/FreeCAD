@@ -263,6 +263,7 @@ Property* PropertyExpressionEngine::Copy() const
     }
 
     engine->validator = validator;
+    engine->quarantinedExpressions = quarantinedExpressions;
 
     return engine;
 }
@@ -425,12 +426,14 @@ void PropertyExpressionEngine::Paste(const Property& from)
         expressionChanged(e.first);
     }
     validator = fromee.validator;
+    quarantinedExpressions = fromee.quarantinedExpressions;
     signaller.tryInvoke();
 }
 
 void PropertyExpressionEngine::Save(Base::Writer& writer) const
 {
-    writer.Stream() << writer.ind() << "<ExpressionEngine count=\"" << expressions.size();
+    writer.Stream() << writer.ind() << "<ExpressionEngine count=\""
+                    << expressions.size() + quarantinedExpressions.size();
     if (PropertyExpressionContainer::_XLinks.empty()) {
         writer.Stream() << "\">" << std::endl;
         writer.incInd();
@@ -452,6 +455,18 @@ void PropertyExpressionEngine::Save(Base::Writer& writer) const
                         << Property::encodeAttribute(expression) << "\"";
         if (!comment.empty()) {
             writer.Stream() << " comment=\"" << Property::encodeAttribute(comment) << "\"";
+        }
+        writer.Stream() << "/>" << std::endl;
+    }
+    // Quarantined bindings are preserved verbatim so that no information is
+    // lost on save; restoration is retried when the document is loaded again.
+    for (const auto& it : quarantinedExpressions) {
+        writer.Stream() << writer.ind() << "<Expression path=\""
+                        << Property::encodeAttribute(it.second.path) << "\" expression=\""
+                        << Property::encodeAttribute(it.second.expr) << "\"";
+        if (!it.second.comment.empty()) {
+            writer.Stream() << " comment=\"" << Property::encodeAttribute(it.second.comment)
+                            << "\"";
         }
         writer.Stream() << "/>" << std::endl;
     }
@@ -551,13 +566,24 @@ void PropertyExpressionEngine::tryRestoreExpression(DocumentObject* docObj,
             }
             setValue(path, expression);
         }
+
+        // Successfully restored (or healed by the target having reappeared):
+        // any earlier quarantined copy of this binding is superseded.
+        quarantinedExpressions.erase(info.path);
     }
     catch (const Base::Exception& e) {
-        FC_ERR("Failed to restore " << docObj->getFullName()
-                                    << '.'
-                                    << getName()
-                                    << ": "
-                                    << e.what());
+        // Do not silently destroy the binding: a failed restore used to drop it
+        // from memory, and the next save permanently converted the driven
+        // property into a plain static value. Keep it verbatim instead; Save()
+        // writes it back and every document load retries the restoration, so
+        // the binding heals itself once its target (property, constraint index,
+        // alias, ...) reappears.
+        quarantinedExpressions[info.path] = info;
+        FC_ERR("Failed to restore expression binding " << docObj->getFullName() << '.'
+                                                       << info.path << " = '" << info.expr
+                                                       << "' (" << e.what()
+                                                       << "); binding preserved and will be"
+                                                          " retried on next document load");
     }
 }
 
@@ -606,6 +632,12 @@ void PropertyExpressionEngine::setValue(const ObjectIdentifier& path,
         return;
     }
 
+    // An explicit bind or unbind supersedes any quarantined copy of the same
+    // binding restored earlier from file.
+    const auto supersedeQuarantined = [this](const ObjectIdentifier& p) {
+        quarantinedExpressions.erase(p.toString());
+    };
+
     if (expr) {
         std::string error = validateExpression(usePath, expr);
         if (!error.empty()) {
@@ -614,12 +646,16 @@ void PropertyExpressionEngine::setValue(const ObjectIdentifier& path,
         AtomicPropertyChange signaller(*this);
         expressions[usePath] = ExpressionInfo(expr);
         expressionChanged(usePath);
+        supersedeQuarantined(usePath);
+        supersedeQuarantined(path);
         signaller.tryInvoke();
     }
     else if (it != expressions.end()) {
         AtomicPropertyChange signaller(*this);
         expressions.erase(it);
         expressionChanged(usePath);
+        supersedeQuarantined(usePath);
+        supersedeQuarantined(path);
         signaller.tryInvoke();
     }
 }
