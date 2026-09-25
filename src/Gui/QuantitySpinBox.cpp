@@ -26,6 +26,7 @@
 #include <QFocusEvent>
 #include <QFontMetrics>
 #include <QLineEdit>
+#include <QPointer>
 #include <QtCore/QScopedValueRollback>
 #include <QStyle>
 #include <QStyleOptionSpinBox>
@@ -292,7 +293,13 @@ void Gui::QuantitySpinBox::keyPressEvent(QKeyEvent* event)
     }
 
     if (isEnter) {
+        // validateInput() and the signals below can run slots that destroy this spin box.
+        QPointer<QuantitySpinBox> guard(this);
         validateInput();
+        if (!guard) {
+            event->ignore();
+            return;
+        }
         if (d->validInput && d->normalize && !isNormalized()) {
             normalize();
         }
@@ -300,6 +307,10 @@ void Gui::QuantitySpinBox::keyPressEvent(QKeyEvent* event)
             // This handler deliberately consumes Return after committing the text. Preserve the
             // QAbstractSpinBox signal contract for callers that use editingFinished().
             Q_EMIT returnPressed();
+            if (!guard) {
+                event->ignore();
+                return;
+            }
             Q_EMIT editingFinished();
             // A successful local commit must not hide Return from an enclosing task panel.
             event->ignore();
@@ -355,13 +366,29 @@ void QuantitySpinBox::commitQuantity(Base::Quantity quantity, const TextPolicy t
     }
 
     if (notify) {
+        // The signals below run arbitrary connected slots, and a slot may destroy this spin
+        // box (for example a task panel closing itself on the committed value). Verify
+        // liveness before every further access to this or the private object.
+        QPointer<QuantitySpinBox> guard(this);
+
         Q_EMIT valueChanged(quantity);
+        if (!guard) {
+            return;
+        }
         Q_EMIT valueChanged(quantity.getValue());
+        if (!guard) {
+            return;
+        }
 
         // Preserve QuantitySpinBox's custom textChanged signal without sending generated text
         // back through userInput(). Rendering and semantic commits are deliberately separate.
-        QScopedValueRollback<bool> updatingGuard(d->updatingText, true);
+        const bool updating = d->updatingText;
+        d->updatingText = true;
         Q_EMIT textChanged(lineEdit()->text());
+        if (!guard) {
+            return;
+        }
+        d->updatingText = updating;
     }
 }
 
@@ -652,7 +679,13 @@ void QuantitySpinBox::userInput(const QString& text)
                                    : App::QuantityInputGrammar::Quantity;
     const auto result = d->interpretInput(text, path, grammar, App::InputPhase::Editing);
     if (text.trimmed().isEmpty()) {
+        // A slot may have destroyed this spin box while handling the signal; the
+        // guard must exist before the emission.
+        QPointer<QuantitySpinBox> guard(this);
         Q_EMIT inputCleared();
+        if (!guard) {
+            return;
+        }
     }
     d->lastRejectedText.clear();
     QToolTip::hideText();
@@ -683,7 +716,13 @@ void QuantitySpinBox::openFormulaDialog()
 {
     Q_ASSERT(isBound());
 
+    // A slot may have destroyed this spin box while handling the signal; the
+    // guard must exist before the emission.
+    QPointer<QuantitySpinBox> guard(this);
     Q_EMIT showFormulaDialog(true);
+    if (!guard) {
+        return;
+    }
 
     Q_D(const QuantitySpinBox);
     auto box = new Gui::Dialog::DlgExpressionInput(getPath(), getExpression(), d->unit, this);
@@ -1044,7 +1083,13 @@ void QuantitySpinBox::focusOutEvent(QFocusEvent* event)
 {
     Q_D(const QuantitySpinBox);
 
+    // validateInput() emits signals whose slots may destroy this spin box; the
+    // guard must be in place before it runs.
+    QPointer<QuantitySpinBox> guard(this);
     validateInput();
+    if (!guard) {
+        return;
+    }
 
     if (d->validInput && d->normalize) {
         normalize();
