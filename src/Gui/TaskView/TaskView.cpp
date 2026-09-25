@@ -35,6 +35,7 @@
 #include <FCConfig.h>
 
 #include <App/Document.h>
+#include <Base/Exception.h>
 #include <Gui/ActionFunction.h>
 #include <Gui/Application.h>
 #include <Gui/Document.h>
@@ -519,7 +520,14 @@ void TaskView::slotViewClosed(const Gui::MDIView* view)
     if (hasDialog && foundTaskInfo->ActiveDialog
         && foundTaskInfo->ActiveDialog->isAutoCloseOnClosedView()) {
         App::Document* doc = foundTaskInfo->Document;
-        foundTaskInfo->ActiveDialog->autoClosedOnClosedView();
+        // The dialog must not throw through the window-close event dispatch, where nothing
+        // catches exceptions and an escape aborts the application.
+        try {
+            foundTaskInfo->ActiveDialog->autoClosedOnClosedView();
+        }
+        catch (const Base::Exception& e) {
+            Base::Console().warning("auto-close of task dialog on closed view failed: {}\n", e.what());
+        }
 
         auto refreshedTaskInfo = std::ranges::find(taskInfos, doc, &TaskInfo::Document);
         if (refreshedTaskInfo != taskInfos.end()) {
