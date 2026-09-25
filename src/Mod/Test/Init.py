@@ -29,6 +29,7 @@ FreeCAD.__unit_test__ += [
     "FreeCADInitTests",
     "UnitTests",
     "Document",
+    "TestExpressionEngine",
     "TestLinkSuppression",
     "TestIntPairList",
     "Metadata",
