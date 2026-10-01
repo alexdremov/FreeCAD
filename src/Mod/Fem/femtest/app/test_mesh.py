@@ -31,6 +31,7 @@ import unittest
 from os.path import join
 
 import FreeCAD
+import Part
 
 import Fem
 from . import support_utils as testtools
@@ -666,4 +667,85 @@ class TestMeshGroups(unittest.TestCase):
             mesh.getGroupElements(mesh.Groups[0]),
             new_fm.getGroupElements(new_fm.Groups[0]),
             msg="Group elements not retained",
+        )
+
+
+class TestMeshNodesOnCurvedFaces(unittest.TestCase):
+    """Node sets for curved faces of second-order meshes with linear midsides.
+
+    Second-order meshes built with linear midside nodes place them at the
+    midpoint of the straight edges, off a curved surface by the chord sag.
+    The distance-based node search only finds the corner nodes, so the face
+    and volume matching helpers, which require ALL nodes of a mesh face or
+    volume face to be in the node set, returned nothing for curved faces.
+    Consequence in the FEM workbench: force and pressure constraints could
+    not be applied to any curved face of a second-order mesh (empty face
+    table). The fix recovers the midside nodes of mesh faces (and mesh
+    edges) whose corner nodes were all found on the geometric face (edge).
+    """
+
+    def setUp(self):
+        # a tet10 volume with one tri6 face lying on the lateral face of a
+        # cylinder; the midsides sit at the CHORD midpoints, not on the
+        # cylinder, exactly like a SecondOrderLinear mesh
+        self.cyl = Part.makeCylinder(1.0, 1.0)
+        self.lat_face = next(f for f in self.cyl.Faces if isinstance(f.Surface, Part.Cylinder))
+
+        coords = {
+            1: (1.0, 0.0, 0.0),  # corner A on cylinder
+            2: (0.0, 1.0, 0.0),  # corner B on cylinder
+            3: (-1.0, 0.0, 0.0),  # corner C on cylinder
+            4: (0.5, 0.5, 0.0),  # chord midside AB, sag = 0.29
+            5: (-0.5, 0.5, 0.0),  # chord midside BC
+            6: (0.0, 0.0, 0.0),  # chord midside CA
+            7: (0.0, 0.0, -1.0),  # apex D
+            8: (0.5, 0.0, -0.5),  # chord midside AD
+            9: (0.0, 0.5, -0.5),  # chord midside BD
+            10: (-0.5, 0.0, -0.5),  # chord midside CD
+        }
+        self.mesh = Fem.FemMesh()
+        for nid, xyz in coords.items():
+            self.assertEqual(self.mesh.addNode(*xyz), nid)
+        # tri6: corners A, B, C then midsides AB, BC, CA
+        self.face_id = self.mesh.addFace([1, 2, 3, 4, 5, 6])
+        # segm3 on the bottom circle arc A-B with chord midside
+        self.mesh.addEdge([1, 2, 4])
+        # tet10: corners A, B, C, D then midsides AB, BC, CA(=AC), AD, BD, CD
+        self.vol_id = self.mesh.addVolume([1, 2, 3, 7, 4, 5, 6, 8, 9, 10])
+
+    def test_00print(self):
+        fcc_print(" Test Mesh nodes on curved faces with linear midsides")
+
+    def test_nodes_by_curved_face(self):
+        node_ids = self.mesh.getNodesByFace(self.lat_face)
+        self.assertEqual(
+            sorted(node_ids), [1, 2, 3, 4, 5, 6], "corner and midside nodes expected on face"
+        )
+
+    def test_faces_by_curved_face(self):
+        face_ids = self.mesh.getFacesByFace(self.lat_face)
+        self.assertEqual(
+            face_ids, [self.face_id], "the tri6 with corners on the face was not matched"
+        )
+
+    def test_ccx_volumes_by_curved_face(self):
+        vol_map = self.mesh.getccxVolumesByFace(self.lat_face)
+        self.assertEqual(
+            [vol_id for vol_id, face_nr in vol_map],
+            [self.vol_id],
+            "the tet10 was not matched to the curved face",
+        )
+
+    def test_nodes_by_curved_edge(self):
+        circle_edges = [
+            e
+            for e in self.cyl.Edges
+            if isinstance(e.Curve, Part.Circle) and e.CenterOfMass.z < 0.5
+        ]
+        edge = circle_edges[0]
+        # the full bottom circle contains all three "corner" nodes plus the
+        # recovered chord midside
+        node_ids = self.mesh.getNodesByEdge(edge)
+        self.assertEqual(
+            sorted(node_ids), [1, 2, 3, 4], "corner and midside nodes expected on curved edge"
         )
