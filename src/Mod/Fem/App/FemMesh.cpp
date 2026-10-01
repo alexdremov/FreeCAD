@@ -677,6 +677,37 @@ std::set<int> FemMesh::getNodesByFace(const TopoDS_Face& face) const
         }
     }
 
+    // Second-order meshes built with linear midside nodes place them at the
+    // midpoint of the straight edges, which deviates from a curved surface by
+    // the chord sag. The strict distance test above therefore only finds the
+    // corner nodes, and the helpers that build on this result
+    // (getFacesByFace, getccxVolumesByFace) require ALL nodes of a mesh face
+    // to be present, so they come back empty for curved faces. Recover the
+    // midside nodes of every mesh face whose corner nodes were all found: by
+    // construction those midsides interpolate between on-surface corners.
+    SMDS_FaceIteratorPtr aFaceIter = myMesh->GetMeshDS()->facesIterator();
+    while (aFaceIter->more()) {
+        const SMDS_MeshFace* aMeshFace = static_cast<const SMDS_MeshFace*>(aFaceIter->next());
+        const int numNodes = aMeshFace->NbNodes();
+        if (numNodes != 6 && numNodes != 8) {
+            continue;
+        }
+        const int numCorners = (numNodes == 6) ? 3 : 4;
+
+        bool allCornersFound = true;
+        for (int i = 0; i < numCorners; ++i) {
+            if (!result.count(aMeshFace->GetNode(i)->GetID())) {
+                allCornersFound = false;
+                break;
+            }
+        }
+        if (allCornersFound) {
+            for (int i = numCorners; i < numNodes; ++i) {
+                result.insert(aMeshFace->GetNode(i)->GetID());
+            }
+        }
+    }
+
     return result;
 }
 
@@ -725,6 +756,21 @@ std::set<int> FemMesh::getNodesByEdge(const TopoDS_Edge& edge) const
             {
                 result.insert(aNode->GetID());
             }
+        }
+    }
+
+    // Same chord-sag recovery as in getNodesByFace(): the midside node of a
+    // second-order mesh edge lies at the straight midpoint, off a curved edge
+    // by the sag. Recover it when both corner nodes were found.
+    SMDS_EdgeIteratorPtr aEdgeIter = myMesh->GetMeshDS()->edgesIterator();
+    while (aEdgeIter->more()) {
+        const SMDS_MeshEdge* aMeshEdge = static_cast<const SMDS_MeshEdge*>(aEdgeIter->next());
+        if (aMeshEdge->NbNodes() != 3) {
+            continue;
+        }
+        if (result.count(aMeshEdge->GetNode(0)->GetID())
+            && result.count(aMeshEdge->GetNode(1)->GetID())) {
+            result.insert(aMeshEdge->GetNode(2)->GetID());
         }
     }
 
