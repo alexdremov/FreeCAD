@@ -1967,6 +1967,21 @@ bool Document::save()
 
 bool Document::saveToFile(const char* filename) const
 {
+    // Surface bindings that failed to restore and are being saved back unchanged
+    // (kept alive by PropertyExpressionEngine's quarantine), so the data problem
+    // they indicate is visible at save time in both GUI and headless runs.
+    size_t quarantinedCount = 0;
+    for (const auto obj : d->objectArray) {
+        quarantinedCount += obj->ExpressionEngine.getQuarantinedExpressionCount();
+    }
+    if (quarantinedCount != 0) {
+        FC_WARN("Document '" << Label.getValue() << "' contains " << quarantinedCount
+                             << " expression binding(s) that failed to restore; they are"
+                                " preserved unchanged in the saved file and will be retried"
+                                " on next load (see 'Failed to restore expression binding'"
+                                " errors above)");
+    }
+
     signalStartSave(*this, filename);
 
     auto hGrp = GetApplication().GetParameterGroupByPath(
