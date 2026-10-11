@@ -1139,8 +1139,12 @@ void NotificationArea::showConfirmationDialog(const QString& notifiername, const
 
 void NotificationArea::showInNotificationArea()
 {
-    // guard to avoid modifying the notification list and indices while creating the tooltip
-    lock_guard<std::mutex> g(pImp->mutexNotification);
+    // guard to avoid modifying the notification list and indices while creating the tooltip.
+    // The lock is released again before the tooltip widget is created at the end of this
+    // function: creating it can log a Qt message, and that message is routed back into
+    // pushNotification() on this same thread, which would deadlock re-locking this
+    // non-recursive mutex.
+    pImp->mutexNotification.lock();
 
     // NOLINTNEXTLINE
     NotificationsAction* na = static_cast<NotificationsAction*>(pImp->notificationaction);
@@ -1290,6 +1294,10 @@ void NotificationArea::showInNotificationArea()
         if (pImp->hideNonIntrusiveNotificationsWhenWindowDeactivated) {
             options = options | NotificationBox::Options::HideIfReferenceWidgetDeactivated;
         }
+
+        // create the tooltip only with the mutex released, see the comment at the top of
+        // this function
+        pImp->mutexNotification.unlock();
 
         bool isshown = NotificationBox::showText(
             this->mapToGlobal(QPoint()),
