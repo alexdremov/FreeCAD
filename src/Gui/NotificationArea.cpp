@@ -1143,8 +1143,9 @@ void NotificationArea::showInNotificationArea()
     // The lock is released again before the tooltip widget is created at the end of this
     // function: creating it can log a Qt message, and that message is routed back into
     // pushNotification() on this same thread, which would deadlock re-locking this
-    // non-recursive mutex.
-    pImp->mutexNotification.lock();
+    // non-recursive mutex. unique_lock so that the early-out path below (no space left for
+    // more notifications) also releases the lock.
+    std::unique_lock<std::mutex> g(pImp->mutexNotification);
 
     // NOLINTNEXTLINE
     NotificationsAction* na = static_cast<NotificationsAction*>(pImp->notificationaction);
@@ -1297,7 +1298,7 @@ void NotificationArea::showInNotificationArea()
 
         // create the tooltip only with the mutex released, see the comment at the top of
         // this function
-        pImp->mutexNotification.unlock();
+        g.unlock();
 
         bool isshown = NotificationBox::showText(
             this->mapToGlobal(QPoint()),
