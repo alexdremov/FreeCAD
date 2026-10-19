@@ -4709,7 +4709,28 @@ LinkLabel::LinkLabel(QWidget* parent, const App::Property* prop)
     connect(editButton, &QPushButton::clicked, this, &LinkLabel::onEditClicked);
 }
 
-LinkLabel::~LinkLabel() = default;
+LinkLabel::~LinkLabel()
+{
+    if (dlg) {
+        // The dialog is owned by the main window, so it is never destroyed as
+        // part of this widget's child teardown: its destructor restores the
+        // saved active view (detachObserver -> setActiveWindow), which with
+        // "save workbench by tab" enabled synchronously emits workbenchActivated
+        // into Python slots that must not observe a half-destroyed widget tree.
+        if (dlg->isVisible()) {
+            // Still in use: the property panel can rebuild (and drop this
+            // editor) while the user is picking an object, e.g. of another
+            // document. Keep the dialog open; it commits the property itself.
+            Base::Console().log("LinkLabel: handing link dialog over for self-commit\n");
+            dlg->setAutoCommit(true);
+        }
+        else {
+            Base::Console().log("LinkLabel: deferring destruction of the link dialog\n");
+            dlg->deleteLater();
+        }
+        dlg = nullptr;
+    }
+}
 
 void LinkLabel::updatePropertyLink()
 {
@@ -4768,8 +4789,19 @@ void LinkLabel::onLinkActivated(const QString& s)
 void LinkLabel::onEditClicked()
 {
     if (!dlg) {
-        dlg = new DlgPropertyLink(this);
+        // Parent the dialog to the main window: the property panel rebuilds
+        // when the dialog's auto view switch activates another document,
+        // which destroys this editor and would take the dialog down with it.
+        dlg = new DlgPropertyLink(getMainWindow());
         dlg->init(objProp, true);
+        // attachObserver() can no longer discover the PropertyView by walking
+        // the widget parents, so hand it over explicitly.
+        for (auto p = parent(); p; p = p->parent()) {
+            if (auto view = qobject_cast<Gui::PropertyView*>(p)) {
+                dlg->setPropertyView(view);
+                break;
+            }
+        }
         connect(dlg, &DlgPropertyLink::accepted, this, &LinkLabel::onLinkChanged);
     }
     else {

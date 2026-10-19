@@ -29,11 +29,15 @@
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/Application.h>
 #include <App/GeoFeature.h>
 #include <App/ObjectIdentifier.h>
 #include <App/PropertyPythonObject.h>
+#include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Base/Interpreter.h>
 #include <Base/Tools.h>
+#include <Gui/Command.h>
 
 #include "Dialogs/DlgPropertyLink.h"
 #include "ui_DlgDocumentObject.h"
@@ -410,6 +414,58 @@ QList<App::SubObjectT> DlgPropertyLink::currentLinks() const
 QList<App::SubObjectT> DlgPropertyLink::originalLinks() const
 {
     return oldLinks;
+}
+
+void DlgPropertyLink::accept()
+{
+    if (autoCommit) {
+        commitToProperty();
+    }
+    DlgDocumentObject::accept();
+}
+
+void DlgPropertyLink::commitToProperty()
+{
+    auto links = currentLinks();
+    if (links == originalLinks()) {
+        return;
+    }
+
+    auto obj = objProp.getObject();
+    auto propLink = freecad_cast<App::PropertyLinkBase*>(objProp.getProperty());
+    if (!obj || !obj->isAttachedToDocument() || !propLink) {
+        return;
+    }
+    if (obj->isReadOnly(propLink) || propLink->testStatus(App::Property::ReadOnly)) {
+        Base::Console().warning(
+            "DlgPropertyLink: cannot commit read-only property {}\n",
+            propLink->getName()
+        );
+        return;
+    }
+
+    std::ostringstream ss;
+    ss << "FreeCAD.getDocument('" << obj->getDocument()->getName() << "').getObject('"
+       << obj->getNameInDocument() << "')." << obj->getPropertyPrefix() << propLink->getName()
+       << " = " << linksToPython(links).toStdString() << '\n';
+
+    int tid = obj->getDocument()->openTransaction(
+        std::string("Edit ") + obj->getNameInDocument() + "." + propLink->getName()
+    );
+    try {
+        Gui::Command::runCommand(Gui::Command::App, ss.str().c_str());
+    }
+    catch (Base::PyException& e) {
+        e.reportException();
+        Base::Console().error("Stack Trace: {}\n", e.getStackTrace());
+    }
+    catch (Base::Exception& e) {
+        e.reportException();
+    }
+    catch (...) {
+        Base::Console().error("Unknown C++ exception in DlgPropertyLink::commitToProperty\n");
+    }
+    App::GetApplication().commitTransaction(tid);
 }
 
 QString DlgPropertyLink::linksToPython(const QList<App::SubObjectT>& links)

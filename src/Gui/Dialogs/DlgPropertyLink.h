@@ -44,6 +44,15 @@ public:
 
     void init(const App::DocumentObjectT& prop, bool tryFilter = true);
 
+    // When enabled, OK commits the selected links to the property even if the
+    // editor that opened this dialog has been destroyed (the property panel
+    // can rebuild while the dialog is open, e.g. when picking an object of
+    // another document).
+    void setAutoCommit(bool enable)
+    {
+        autoCommit = enable;
+    }
+
     static QString linksToPython(const QList<App::SubObjectT>& links);
 
     static QList<App::SubObjectT> getLinksFromProperty(const App::PropertyLinkBase* prop);
@@ -59,11 +68,16 @@ public:
 
 protected:
     void onClicked(QAbstractButton* button) override;
+    void accept() override;
+
+private:
+    void commitToProperty();
 
 private:
     App::DocumentObjectT objProp;
     std::set<App::DocumentObject*> inList;
     QList<App::SubObjectT> oldLinks;
+    bool autoCommit = false;
 };
 
 }  // namespace Gui::Dialog

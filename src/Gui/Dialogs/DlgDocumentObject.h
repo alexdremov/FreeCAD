@@ -68,6 +68,14 @@ public:
         bool expandTypeOwner = true
     );
 
+    // Set the PropertyView owning this dialog when it cannot be discovered by
+    // walking the widget parents (the dialog may be parented outside the
+    // property panel to survive the panel rebuilding).
+    void setPropertyView(QWidget* view)
+    {
+        parentView = view;
+    }
+
 protected:
     void showEvent(QShowEvent*) override;
     void hideEvent(QHideEvent*) override;
