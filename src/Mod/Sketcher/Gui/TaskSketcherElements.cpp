@@ -113,6 +113,8 @@ QT_TRANSLATE_NOOP("SketcherGui::ElementView", "Select Horizontal Axis");
 
 QT_TRANSLATE_NOOP("SketcherGui::ElementView", "Select Vertical Axis");
 
+QT_TRANSLATE_NOOP("SketcherGui::ElementView", "Replace reference…");
+
 #endif
 
 /// Inserts a QAction into an existing menu
@@ -754,6 +756,42 @@ void ElementView::changeLayer(ElementItem* item, int layer)
     }
 }
 
+/// Re-points the references of the selected external geometry elements to a
+/// newly picked edge/vertex/face by invoking Sketcher_ReplaceExternal. That
+/// command consumes the 3D selection of the sketch in edit, so the selected
+/// external elements are mirrored into Gui::Selection first, using the same
+/// subname conversion as the list-to-3D selection sync.
+static void replaceExternalGeometryReference(const QList<QListWidgetItem*>& items)
+{
+    std::vector<int> geoIds;
+    Sketcher::SketchObject* sketch = nullptr;
+    for (const QListWidgetItem* item : items) {
+        auto* elementItem = static_cast<const ElementItem*>(item);
+        if (elementItem->ElementNbr < 0) {
+            geoIds.push_back(elementItem->ElementNbr);
+            sketch = elementItem->getSketchObject();
+        }
+    }
+
+    if (geoIds.empty() || !sketch) {
+        return;
+    }
+
+    const std::string docName = sketch->getDocument()->getName();
+    const std::string objName = sketch->getNameInDocument();
+
+    Gui::Selection().clearSelection();
+    for (int geoId : geoIds) {
+        // a negative ElementNbr is a GeoId; subname numbering starts at
+        // "ExternalEdge1" for the first external geometry (GeoId -3)
+        std::string subName = std::format("ExternalEdge{}", -geoId - 2);
+        Gui::Selection().addSelection2(
+            docName.c_str(), objName.c_str(), sketch->convertSubName(subName).c_str());
+    }
+
+    Gui::Application::Instance->commandManager().runCommandByName("Sketcher_ReplaceExternal");
+}
+
 void ElementView::contextMenuEvent(QContextMenuEvent* event)
 {
     QMenu menu;
@@ -904,6 +942,29 @@ void ElementView::contextMenuEvent(QContextMenuEvent* event)
 
 
     menu.addSeparator();
+
+    // re-selecting the reference of an external geometry only makes sense for
+    // external elements, whose ElementNbr (GeoId) is negative
+    bool hasExternalGeometry = false;
+    for (const QListWidgetItem* item : items) {
+        if (static_cast<const ElementItem*>(item)->ElementNbr < 0) {
+            hasExternalGeometry = true;
+            break;
+        }
+    }
+
+    if (hasExternalGeometry) {
+        if (auto* cmd_ReplaceExternal = Gui::Application::Instance->commandManager()
+                                            .getCommandByName("Sketcher_ReplaceExternal");
+            cmd_ReplaceExternal && cmd_ReplaceExternal->allowedByMaturity()) {
+            QAction* replaceReference = menu.addAction(
+                QIcon(Gui::BitmapFactory().pixmap("Sketcher_Projection")),
+                tr("Replace reference…"),
+                [items]() { replaceExternalGeometryReference(items); }
+            );
+            replaceReference->setEnabled(!items.isEmpty());
+        }
+    }
 
     QAction* remove = menu.addAction(tr("Delete"), this, &ElementView::deleteSelectedItems);
     remove->setShortcut(QKeySequence(QKeySequence::Delete));
