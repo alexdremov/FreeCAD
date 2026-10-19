@@ -35,6 +35,8 @@
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
+#include <Gui/Notifications.h>
+#include <Gui/Selection/Selection.h>
 #include <Gui/Selection/SelectionFilter.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -1825,6 +1827,7 @@ public:
 
         addCommand("Sketcher_Projection");
         addCommand("Sketcher_Intersection");
+        addCommand("Sketcher_ReplaceExternal");
     }
 
     void updateAction(int mode) override
@@ -1935,6 +1938,74 @@ bool CmdSketcherIntersection::isActive()
     return isCommandActive(getActiveGuiDocument());
 }
 
+// Externals - Replace reference ==================================================================
+
+DEF_STD_CMD_A(CmdSketcherReplaceExternal)
+
+CmdSketcherReplaceExternal::CmdSketcherReplaceExternal()
+    : Command("Sketcher_ReplaceExternal")
+{
+    sAppModule = "Sketcher";
+    sGroup = "Sketcher";
+    sMenuText = QT_TR_NOOP("Replace external geometry reference");
+    sToolTipText = QT_TR_NOOP(
+        "Re-links the selected external geometry to a new edge/vertex/face picked in the 3D "
+        "view. Constraints referencing it are preserved."
+    );
+    sWhatsThis = "Sketcher_ReplaceExternal";
+    sStatusTip = sToolTipText;
+    sPixmap = "Sketcher_Projection";
+    eType = ForEdit;
+}
+
+void CmdSketcherReplaceExternal::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+
+    // gather the external geometries selected on the sketch in edit; the
+    // selection subnames come resolved, so external edges read "ExternalEdgeN"
+    // with GeoId = -(N + 2) (first external geometry is "ExternalEdge1")
+    auto* vp = static_cast<SketcherGui::ViewProviderSketch*>(getActiveGuiDocument()->getInEdit());
+    auto* sketchObj = vp->getSketchObject();
+
+    std::vector<int> geoIds;
+    for (const auto& selection : Gui::Selection().getSelectionEx(
+             sketchObj->getDocument()->getName(),
+             Sketcher::SketchObject::getClassTypeId()
+         )) {
+        if (selection.getObject() != sketchObj) {
+            continue;
+        }
+        for (const auto& subname : selection.getSubNames()) {
+            if (subname.size() > 12 && subname.compare(0, 12, "ExternalEdge") == 0) {
+                geoIds.push_back(-std::atoi(subname.c_str() + 12) - 2);
+            }
+        }
+    }
+
+    if (geoIds.empty()) {
+        Gui::NotifyUserError(
+            sketchObj,
+            QT_TRANSLATE_NOOP("Notifications", "Invalid selection"),
+            QT_TRANSLATE_NOOP("Notifications", "Select external geometry to replace its reference.")
+        );
+        return;
+    }
+
+    bool extGeoRef = Gui::WindowParameter::getDefaultParameter()
+                         ->GetGroup("Mod/Sketcher/General")
+                         ->GetBool("AlwaysExtGeoReference", false);
+    ActivateHandler(
+        getActiveGuiDocument(),
+        std::make_unique<DrawSketchHandlerExternal>(extGeoRef, false, std::move(geoIds))
+    );
+}
+
+bool CmdSketcherReplaceExternal::isActive()
+{
+    return isCommandActive(getActiveGuiDocument());
+}
+
 // ======================================================================================
 // Carbon copy =============================================
 
@@ -2010,6 +2081,7 @@ void CreateSketcherCommandsCreateGeo()
     rcCmdMgr.addCommand(new CmdSketcherSplit());
     rcCmdMgr.addCommand(new CmdSketcherProjection());
     rcCmdMgr.addCommand(new CmdSketcherIntersection());
+    rcCmdMgr.addCommand(new CmdSketcherReplaceExternal());
     rcCmdMgr.addCommand(new CmdSketcherCarbonCopy());
 
     // Group command must be added after its subcommands.
