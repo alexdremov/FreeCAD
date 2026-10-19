@@ -127,9 +127,17 @@ class DrawSketchHandlerExternal: public DrawSketchHandler
     Q_DECLARE_TR_FUNCTIONS(SketcherGui::DrawSketchHandlerExternal)
 
 public:
-    DrawSketchHandlerExternal(bool alwaysReference, bool intersection)
+    // If replaceGeoIds is not empty, the handler runs in replace mode: the
+    // first pick re-points those external geometries to the picked reference
+    // (see SketchObject::attachExternal) instead of adding a new one.
+    DrawSketchHandlerExternal(
+        bool alwaysReference,
+        bool intersection,
+        std::vector<int> replaceGeoIds = {}
+    )
         : alwaysReference {alwaysReference}
         , intersection {intersection}
+        , replaceGeoIds {std::move(replaceGeoIds)}
     {}
     ~DrawSketchHandlerExternal() override
     {
@@ -177,6 +185,57 @@ public:
                 || (subName.size() > 4 && subName.substr(0, 4) == "Edge")
                 || (subName.size() > 6 && subName.substr(0, 6) == "Vertex")
                 || (subName.size() > 4 && subName.substr(0, 4) == "Face")) {
+                if (!replaceGeoIds.empty()) {
+                    // replace mode: re-point the external geometries passed at
+                    // construction to the freshly picked reference. The cached
+                    // positions of the external geometries are preserved by
+                    // attachExternal(), so constraints referencing them survive.
+                    std::string joinedGeoIds;
+                    for (size_t i = 0; i < replaceGeoIds.size(); ++i) {
+                        if (i > 0) {
+                            joinedGeoIds += ',';
+                        }
+                        joinedGeoIds += std::to_string(replaceGeoIds[i]);
+                    }
+
+                    try {
+                        openCommand(
+                            QT_TRANSLATE_NOOP("Command", "Replace external geometry reference")
+                        );
+                        Gui::cmdAppObjectArgs(
+                            sketchgui->getObject(),
+                            "attachExternal([%s], \"%s\", \"%s\")",
+                            joinedGeoIds.c_str(),
+                            msg.pObjectName,
+                            msg.pSubName
+                        );
+
+                        commitCommand();
+
+                        // as for adding external geometry, a solve is required to
+                        // update the amount of solver geometry (a very low cost
+                        // one, as there is actually nothing to solve).
+                        tryAutoRecomputeIfNotSolve(sketchgui->getObject<Sketcher::SketchObject>());
+
+                        Gui::Selection().clearSelection();
+                    }
+                    catch (const Base::Exception&) {
+                        Gui::NotifyError(
+                            sketchgui,
+                            QT_TRANSLATE_NOOP("Notifications", "Error"),
+                            QT_TRANSLATE_NOOP("Notifications", "Failed to replace external geometry reference")
+                        );
+                        Gui::Selection().clearSelection();
+                        abortCommand();
+                    }
+
+                    // single-shot: replacing once ends the tool. This destroys
+                    // this handler, so nothing must access members afterwards.
+                    quit();
+
+                    return true;
+                }
+
                 try {
                     openCommand(QT_TRANSLATE_NOOP("Command", "Add external geometry"));
                     Gui::cmdAppObjectArgs(
@@ -251,10 +310,19 @@ private:
 
     bool alwaysReference;
     bool intersection;
+    std::vector<int> replaceGeoIds;
 
 public:
     std::list<Gui::InputHint> getToolHints() const override
     {
+        if (!replaceGeoIds.empty()) {
+            return {
+                {tr("%1 pick the new reference of the selected external geometry",
+                    "Sketcher External: hint"),
+                 {Gui::InputHint::UserInput::MouseLeft}},
+            };
+        }
+
         return {
             {tr("%1 pick external geometry", "Sketcher External: hint"),
              {Gui::InputHint::UserInput::MouseLeft}},

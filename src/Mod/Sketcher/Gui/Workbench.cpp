@@ -561,6 +561,7 @@ inline void SketcherAddWorkbenchTools<Gui::MenuItem>(Gui::MenuItem& consaccel)
     SketcherAddWorkspaceCurveEdition(consaccel);
     consaccel << "Sketcher_Projection"
               << "Sketcher_Intersection"
+              << "Sketcher_ReplaceExternal"
               << "Sketcher_CarbonCopy"
               << "Separator"
               << "Sketcher_SelectOrigin"

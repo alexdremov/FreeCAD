@@ -29,6 +29,7 @@
 #include <Geom_TrimmedCurve.hxx>
 
 #include <App/Document.h>
+#include <App/DocumentObjectPy.h>
 #include <Base/AxisPy.h>
 #include <Base/QuantityPy.h>
 #include <Base/Tools.h>
@@ -720,6 +721,86 @@ PyObject* SketchObjectPy::delExternals(PyObject* args)
     std::string error = std::string("type must be list of External GeoIds, not ");
     error += pcObj->ob_type->tp_name;
     throw Py::TypeError(error);
+}
+
+PyObject* SketchObjectPy::attachExternal(PyObject* args)
+{
+    PyObject* pcGeoIds;
+    PyObject* pcObj;
+    char* SubName = nullptr;
+    if (!PyArg_ParseTuple(args, "OOs", &pcGeoIds, &pcObj, &SubName)) {
+        return nullptr;
+    }
+
+    std::vector<int> geoIds;
+    if (PyLong_Check(pcGeoIds)) {
+        geoIds.push_back(static_cast<int>(PyLong_AsLong(pcGeoIds)));
+    }
+    else if (PyObject_TypeCheck(pcGeoIds, &(PyList_Type))
+             || PyObject_TypeCheck(pcGeoIds, &(PyTuple_Type))) {
+        Py::Sequence list(pcGeoIds);
+        for (const auto& item : list) {
+            if (!PyLong_Check(item.ptr())) {
+                throw Py::TypeError("list elements must be int");
+            }
+            geoIds.push_back(PyLong_AsLong(item.ptr()));
+        }
+    }
+    else {
+        std::string error = std::string("type must be int or list of External GeoIds, not ");
+        error += pcGeoIds->ob_type->tp_name;
+        throw Py::TypeError(error);
+    }
+
+    Sketcher::SketchObject* skObj = this->getSketchObjectPtr();
+
+    // unlike the core, reject invalid GeoIds instead of silently skipping them,
+    // as all-skipped input would add a new reference instead of replacing one
+    for (int geoId : geoIds) {
+        if (geoId > GeoEnum::RefExt || -geoId > skObj->getExternalGeometryCount()) {
+            std::stringstream str;
+            str << "Invalid external geometry Id: " << geoId;
+            PyErr_SetString(PyExc_ValueError, str.str().c_str());
+            return nullptr;
+        }
+    }
+
+    // get the new target of the external link: a document object or its name
+    App::DocumentObject* Obj = nullptr;
+    if (PyObject_TypeCheck(pcObj, &(App::DocumentObjectPy::Type))) {
+        Obj = static_cast<App::DocumentObjectPy*>(pcObj)->getDocumentObjectPtr();
+    }
+    else if (PyUnicode_Check(pcObj)) {
+        std::string ObjectName = PyUnicode_AsUTF8(pcObj);
+        Obj = skObj->getDocument()->getObject(ObjectName.c_str());
+        if (!Obj) {
+            std::stringstream str;
+            str << ObjectName << " does not exist in the document";
+            PyErr_SetString(PyExc_ValueError, str.str().c_str());
+            return nullptr;
+        }
+    }
+    else {
+        PyErr_SetString(PyExc_TypeError, "object must be a document object or an object name");
+        return nullptr;
+    }
+
+    // check if this type of external geometry is allowed
+    if (!skObj->isExternalAllowed(Obj->getDocument(), Obj)) {
+        std::stringstream str;
+        str << Obj->getNameInDocument() << " is not allowed as external geometry of this sketch";
+        PyErr_SetString(PyExc_ValueError, str.str().c_str());
+        return nullptr;
+    }
+
+    // replace the references of the given external geometries, keeping their GeoIds
+    int index = skObj->attachExternal(geoIds, Obj, SubName);
+    if (index < 0) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to attach external geometry element");
+        return nullptr;
+    }
+
+    return Py_BuildValue("i", index);
 }
 
 PyObject* SketchObjectPy::delConstraintOnPoint(PyObject* args)
