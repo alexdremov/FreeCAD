@@ -369,6 +369,32 @@ class SketchObject(Part2DObject):
         ...
 
     @overload
+    def attachExternal(self, geo_id: int, obj: object, sub_name: str, /) -> int: ...
+    @overload
+    def attachExternal(self, geo_ids: List[int], obj: object, sub_name: str, /) -> int: ...
+    def attachExternal(self, *args: object) -> int:
+        """
+        Re-point existing external geometry links to another reference.
+
+        attachExternal(geoId:int, obj:str|object, subName:str) -> int
+        attachExternal(geoIds:List(int), obj:str|object, subName:str) -> int
+
+            Args:
+                geoId: The GeoId of the external geometry to re-point (negative, the
+                    first external geometry is -3). All external geometries sharing the
+                    same reference are re-pointed as well.
+                geoIds: The GeoIds of the external geometries to re-point.
+                obj: The document object (or its name) to reference instead.
+                subName: The name of the sub-element of the object's shape to link as
+                    "external geometry".
+
+            Returns: The index of the new external geometry link. The cached external
+            geometries keep their positions, so constraints referencing their GeoIds
+            stay valid.
+        """
+        ...
+
+    @overload
     def delConstraintOnPoint(self, vertex_id: int, /) -> None: ...
     @overload
     def delConstraintOnPoint(self, geo_id: int, point_pos: int, /) -> None: ...
