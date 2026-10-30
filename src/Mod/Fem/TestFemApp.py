@@ -35,6 +35,7 @@ from femtest.app.test_material import TestMaterialUnits as FemTest06
 from femtest.app.test_mesh import TestMeshCommon as FemTest07
 from femtest.app.test_mesh import TestMeshEleTetra10 as FemTest08
 from femtest.app.test_mesh import TestMeshGroups as FemTest09
+from femtest.app.test_mesh import TestMeshNodesOnCurvedFaces as FemTest12
 from femtest.app.test_result import TestResult as FemTest10
 from femtest.app.test_ccxtools import TestCcxTools as FemTest11
 from femtest.app.test_solver_elmer import TestSolverElmer as FemTest13
@@ -55,6 +56,7 @@ False if FemTest08.__name__ else True
 False if FemTest09.__name__ else True
 False if FemTest10.__name__ else True
 False if FemTest11.__name__ else True
+False if FemTest12.__name__ else True
 False if FemTest13.__name__ else True
 False if FemTest14.__name__ else True
 False if FemTest15.__name__ else True
