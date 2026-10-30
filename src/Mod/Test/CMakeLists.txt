@@ -27,6 +27,7 @@ SET(Test_SRCS
     unittestgui.py
     testmakeWireString.py
     TestCrashReporter.py
+    TestExpressionEngine.py
     TestPythonSyntax.py
     TestPerf.py
     TestTreeSelection.py
