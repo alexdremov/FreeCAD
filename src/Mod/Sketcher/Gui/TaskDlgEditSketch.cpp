@@ -23,6 +23,7 @@
  ***************************************************************************/
 
 
+#include <Gui/Application.h>
 #include <Gui/Command.h>
 
 #include "TaskDlgEditSketch.h"
@@ -130,7 +131,12 @@ bool TaskDlgEditSketch::reject()
     ViewProviderSketch* view = sketchView;
     std::string document = getDocumentName();  // needed because resetEdit() deletes this instance
     view->editingCancelled = true;
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()", document.c_str());
+    // When the view closes as part of its document closing, the GUI document is already
+    // deregistered and the Python getDocument() below would raise NameError, which then
+    // escapes through the window-close dispatch where nothing catches it.
+    if (Gui::Application::Instance->getDocument(document.c_str())) {
+        Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()", document.c_str());
+    }
     view->editingCancelled = false;
 
     return true;
@@ -139,8 +145,10 @@ bool TaskDlgEditSketch::reject()
 bool TaskDlgEditSketch::accept()
 {
     std::string document = getDocumentName();  // needed because resetEdit() deletes this instance
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()", document.c_str());
-    Gui::Command::doCommand(Gui::Command::Doc, "App.getDocument('%s').recompute()", document.c_str());
+    if (Gui::Application::Instance->getDocument(document.c_str())) {
+        Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()", document.c_str());
+        Gui::Command::doCommand(Gui::Command::Doc, "App.getDocument('%s').recompute()", document.c_str());
+    }
 
     return true;
 }
