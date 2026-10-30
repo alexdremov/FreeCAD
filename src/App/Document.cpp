@@ -2977,10 +2977,24 @@ int Document::recompute(const std::vector<DocumentObject*>& objs,
                 }
                 if (obj->isTouched() || doRecompute) {
                     signalRecomputedObject(*obj);
+                    // a slot of this signal may have removed the object, in
+                    // which case it must not be dereferenced any further
+                    if (!obj->isAttachedToDocument()) {
+                        FC_WARN("Skip recompute propagation: object deleted while "
+                                "signaling recompute");
+                        continue;
+                    }
                     if (fineGrained) {
                         // set all dependent objects touched based on properties
                         std::vector<DepEdge> inList = obj->getInListProp();
                         for (auto& [objFrom, propFrom, objTo, propTo] : inList) {
+                            // the dependency graph may still hold edges of
+                            // objects deleted during this recompute
+                            if (!objFrom->isAttachedToDocument()) {
+                                FC_WARN(obj->getFullName()
+                                        << ": skip recompute propagation to deleted object");
+                                continue;
+                            }
                             if (obj->touchedProps.contains(propTo) || propTo.empty()) {
                                 objFrom->enforceRecompute(propFrom);
                             }
@@ -2991,6 +3005,11 @@ int Document::recompute(const std::vector<DocumentObject*>& objs,
                         obj->purgeTouched();
                         // set all dependent objects touched to force recompute
                         for (auto inObjIt : obj->getInList()) {
+                            if (!inObjIt->isAttachedToDocument()) {
+                                FC_WARN(obj->getFullName()
+                                        << ": skip recompute propagation to deleted object");
+                                continue;
+                            }
                             inObjIt->enforceRecompute();
                         }
                     }
@@ -3002,6 +3021,9 @@ int Document::recompute(const std::vector<DocumentObject*>& objs,
             // check if all objects are recomputed but still thouched
             for (size_t i = 0; i < topoSortedObjects.size(); ++i) {
                 auto obj = topoSortedObjects[i];
+                if (!obj->isAttachedToDocument()) {
+                    continue;
+                }
                 obj->setStatus(ObjectStatus::Recompute2, false);
                 if (!filter.contains(obj) && obj->isTouched()) {
                     if (passes > 0) {
